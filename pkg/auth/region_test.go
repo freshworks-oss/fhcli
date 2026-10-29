@@ -66,3 +66,10 @@ func TestLookupRegionUSHasBuiltInClientID(t *testing.T) {
 		t.Errorf("r = %+v, err = %v; want the US production client ID", r, err)
 	}
 }
+
+func TestLookupRegionStagingHasBuiltInClientID(t *testing.T) {
+	r, err := LookupRegion("staging", "")
+	if err != nil || r.ClientID != "TlXhAD7W8yPRUFSNwpSN4X7A4rbEzJ_9J3VV04rH9q0" {
+		t.Errorf("r = %+v, err = %v; want the staging client ID", r, err)
+	}
+}

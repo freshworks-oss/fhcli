@@ -26,7 +26,7 @@ var regions = map[string]Region{
 	"eu":      subdomainRegion("eu"),
 	"au":      subdomainRegion("au"),
 	"in":      subdomainRegion("in"),
-	"staging": subdomainRegion("staging"),
+	"staging": {Name: "staging", AppHost: "https://app.staging.firehydrant.io", APIHost: "https://api.staging.firehydrant.io", ClientID: "TlXhAD7W8yPRUFSNwpSN4X7A4rbEzJ_9J3VV04rH9q0"},
 }
 
 func subdomainRegion(name string) Region {
