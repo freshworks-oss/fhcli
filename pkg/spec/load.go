@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // embedded is a snapshot of https://api.firehydrant.io/v1/swagger_doc.
@@ -31,7 +32,23 @@ func OverridePath() (string, error) {
 	return filepath.Join(dir, "fhcli", "spec.json"), nil
 }
 
-// Load returns the override spec if one exists, else the embedded snapshot.
+// binaryModTime is when the running fhcli binary was written (installed or
+// upgraded). A test seam.
+var binaryModTime = func() time.Time {
+	exe, err := os.Executable()
+	if err != nil {
+		return time.Time{}
+	}
+	info, err := os.Stat(exe)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+// Load returns the override spec if one exists and was fetched after this
+// fhcli binary was installed, else the embedded snapshot. An override older
+// than the binary predates an upgrade, whose embedded spec is newer.
 func Load() (*Spec, error) {
 	path, err := OverridePath()
 	if err != nil {
@@ -44,6 +61,9 @@ func Load() (*Spec, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read spec override %s: %w", path, err)
+	}
+	if info.ModTime().Before(binaryModTime()) {
+		return loadEmbedded()
 	}
 
 	data, err := os.ReadFile(path)

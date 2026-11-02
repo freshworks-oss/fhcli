@@ -108,14 +108,43 @@ func TestLoginAccessDenied(t *testing.T) {
 	}
 }
 
-func TestLoginStateMismatch(t *testing.T) {
+func TestLoginIgnoresCallbackWithWrongState(t *testing.T) {
+	f := newFakeOAuth(t)
+	port := freePort(t)
+	var strayStatus int
+	browser := func(u string) error {
+		go func() {
+			// A stale tab or a probing page hits the callback first.
+			stray := fmt.Sprintf("http://localhost:%d/callback?code=x&state=stale", port)
+			if resp, err := http.Get(stray); err == nil {
+				strayStatus = resp.StatusCode
+				resp.Body.Close()
+			}
+			if resp, err := http.Get(u); err == nil {
+				resp.Body.Close()
+			}
+		}()
+		return nil
+	}
+
+	c, err := Login(context.Background(), f.region(), LoginOptions{Ports: []int{port}, OpenBrowser: browser})
+
+	if err != nil || c == nil {
+		t.Fatalf("a callback with the wrong state ended the login: %v", err)
+	}
+	if strayStatus != http.StatusBadRequest {
+		t.Errorf("stray callback status = %d, want 400", strayStatus)
+	}
+}
+
+func TestLoginWithOnlyWrongStateCallbackTimesOut(t *testing.T) {
 	f := newFakeOAuth(t)
 	f.wrongState = true
 
-	_, err := Login(context.Background(), f.region(), LoginOptions{Ports: []int{freePort(t)}, OpenBrowser: followingBrowser(t)})
+	_, err := Login(context.Background(), f.region(), LoginOptions{Ports: []int{freePort(t)}, OpenBrowser: followingBrowser(t), Timeout: 300 * time.Millisecond})
 
-	if err == nil || !strings.Contains(err.Error(), "state mismatch") {
-		t.Errorf("err = %v, want state mismatch", err)
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("err = %v, want the login to keep waiting (and time out) rather than accept a wrong state", err)
 	}
 }
 

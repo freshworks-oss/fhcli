@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeOverride(t *testing.T, dir string, data []byte) string {
@@ -123,5 +124,25 @@ func TestLoadRejectsInvalidOverride(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "run `fhcli spec update` or delete the file") {
 		t.Errorf("error should tell the user how to recover, got: %v", err)
+	}
+}
+
+func TestLoadIgnoresOverrideOlderThanBinary(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	data, err := os.ReadFile("testdata/mini.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeOverride(t, dir, data)
+	orig := binaryModTime
+	t.Cleanup(func() { binaryModTime = orig })
+	// The binary was upgraded after the override was fetched.
+	binaryModTime = func() time.Time { return time.Now().Add(time.Hour) }
+
+	s, err := Load()
+
+	if err != nil || s.Source != EmbeddedSource {
+		t.Errorf("Source = %v, err = %v; an override older than the binary should give way to the embedded spec", s, err)
 	}
 }

@@ -29,7 +29,9 @@ func (c *Credentials) fresh() bool {
 
 // Token returns the region's stored login with a usable access token,
 // refreshing (and saving the rotated refresh token) when it is about to
-// expire. Refreshes are serialized across fhcli processes with a file lock.
+// expire. If that refresh fails other than by the login being revoked, the
+// current token is returned while it has not yet expired. Refreshes are
+// serialized across fhcli processes with a file lock.
 func Token(ctx context.Context, store Store, region string) (*Credentials, error) {
 	c, err := store.Load(region)
 	if err != nil || c.fresh() {
@@ -54,6 +56,11 @@ func Token(ctx context.Context, store Store, region string) (*Credentials, error
 		var re *oauth2.RetrieveError
 		if errors.As(err, &re) && re.ErrorCode == "invalid_grant" {
 			return nil, ErrLoginExpired
+		}
+		// Refreshing early is an optimization: a network blip or server
+		// error must not fail a command while the current token still works.
+		if time.Now().Before(c.Expiry) {
+			return c, nil
 		}
 		return nil, oauthError("refreshing login", err)
 	}

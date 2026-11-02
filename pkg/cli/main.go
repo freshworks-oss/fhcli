@@ -124,25 +124,30 @@ func newRootCmd(commit, version string, sp *spec.Spec, specErr error) *cli.Comma
 }
 
 func rootBefore(ctx context.Context, cmd *cli.Command) (context.Context, error) {
-	// Decide before the config file is applied: a config-file apiHost must
-	// not redirect a stored login's token (the config may be in /tmp).
-	explicitHost := cmd.IsSet("api-host")
-
-	// Load config file values
-	loadConfigFile(cmd)
 	sawUnauthorized.Store(false)
-
-	// Skip auth for commands that don't call the API with it
 	cmdName := ""
 	if cmd.Args().Present() {
 		cmdName = cmd.Args().First()
 	}
-	switch cmdName {
-	case "init", "install", "spec", "search", "login", "logout":
+	// init writes a config file from its flags alone, as in v0.0.15: an
+	// existing (possibly another org's, or planted /tmp) config must not
+	// leak its apiKey or apiHost into the new file.
+	if cmdName == "init" {
 		return ctx, nil
 	}
 
-	info, err := resolveAuth(ctx, cmd, explicitHost)
+	// Decide before the config file is applied: a config file (which may be
+	// in /tmp) must not override a stored login, nor redirect its token.
+	explicit := explicitAuth{token: cmd.IsSet("token"), host: cmd.IsSet("api-host")}
+	loadConfigFile(cmd)
+
+	// Skip auth for commands that don't call the API with it
+	switch cmdName {
+	case "install", "spec", "search", "login", "logout":
+		return ctx, nil
+	}
+
+	info, err := resolveAuth(ctx, cmd, explicit)
 	if err != nil {
 		// Reported by the command via getClient, so --ignore-errors still
 		// applies to event/execute.
@@ -152,9 +157,13 @@ func rootBefore(ctx context.Context, cmd *cli.Command) (context.Context, error) 
 		return ctx, nil
 	}
 
+	httpClient := apiHTTPClient
+	if cmd.Bool("debug") {
+		httpClient = withDebug(apiHTTPClient, os.Stderr)
+	}
 	opts := []firehydrantgosdk.SDKOption{
 		firehydrantgosdk.WithSecurity(components.Security{APIKey: info.header}),
-		firehydrantgosdk.WithClient(apiHTTPClient),
+		firehydrantgosdk.WithClient(httpClient),
 	}
 	if info.apiHost != defaultAPIHost {
 		opts = append(opts, firehydrantgosdk.WithServerURL(info.apiHost))
@@ -162,7 +171,7 @@ func rootBefore(ctx context.Context, cmd *cli.Command) (context.Context, error) 
 
 	ctx = context.WithValue(ctx, authInfoKey, info)
 	ctx = context.WithValue(ctx, sdkClientKey, firehydrantgosdk.New(opts...))
-	ctx = context.WithValue(ctx, rawClientKey, &rawClient{baseURL: info.apiHost, token: info.header, http: apiHTTPClient})
+	ctx = context.WithValue(ctx, rawClientKey, &rawClient{baseURL: info.apiHost, token: info.header, http: httpClient})
 	return ctx, nil
 }
 

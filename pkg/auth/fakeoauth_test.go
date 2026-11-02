@@ -25,6 +25,7 @@ type fakeOAuth struct {
 	wrongState     bool // authorize redirects with a different state
 	failExchange   bool // /oauth/token rejects the code
 	refreshInvalid bool // /oauth/token rejects refresh with invalid_grant
+	refreshDown    bool // /oauth/token answers refresh with a 503
 	omitExpiresIn  bool // token responses have no expires_in
 	refreshCount   int
 	refreshToken   string // the refresh token the server currently accepts
@@ -61,6 +62,7 @@ func (f *fakeOAuth) authorize(w http.ResponseWriter, r *http.Request) {
 	case f.deny:
 		back.Set("error", "access_denied")
 		back.Set("error_description", "The resource owner denied the request.")
+		back.Set("state", q.Get("state")) // RFC 6749 4.1.2.1; Doorkeeper echoes it
 	case f.wrongState:
 		back.Set("code", "the-code")
 		back.Set("state", "not-"+q.Get("state"))
@@ -89,6 +91,10 @@ func (f *fakeOAuth) token(w http.ResponseWriter, r *http.Request) {
 		}
 		f.writeToken(w, f.accessToken, f.refreshToken)
 	case "refresh_token":
+		if f.refreshDown {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		if f.refreshInvalid || r.Form.Get("refresh_token") != f.refreshToken {
 			oauthErrorResponse(w, "invalid_grant", "The provided authorization grant is invalid.")
 			return

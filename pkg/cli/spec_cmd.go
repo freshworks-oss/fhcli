@@ -6,9 +6,9 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
+	"github.com/firehydrant/fhcli/pkg/auth"
 	"github.com/firehydrant/fhcli/pkg/spec"
 	"github.com/urfave/cli/v3"
 )
@@ -44,7 +44,7 @@ func specUpdateCmd(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return failCmd(cmd, err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := apiHTTPClient.Do(req)
 	if err != nil {
 		return failCmd(cmd, fmt.Errorf("download spec: %w", err))
 	}
@@ -67,7 +67,7 @@ func specUpdateCmd(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return failCmd(cmd, err)
 	}
-	if err := writeFileAtomic(path, data); err != nil {
+	if err := auth.WriteFileAtomic(path, data); err != nil {
 		return failCmd(cmd, fmt.Errorf("save spec: %w", err))
 	}
 
@@ -98,27 +98,4 @@ func specInfoCmd(ctx context.Context, cmd *cli.Command) error {
 		info["modified_at"] = sp.ModifiedAt.UTC().Format(time.RFC3339)
 	}
 	return outputJSON(os.Stdout, info)
-}
-
-// writeFileAtomic writes via a temp file + rename so an interrupted update
-// never leaves a truncated spec behind.
-func writeFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".spec-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name()) // no-op after a successful rename
-
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
 }

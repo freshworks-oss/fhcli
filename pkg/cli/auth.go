@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/httputil"
 	"sync/atomic"
 	"time"
 
@@ -27,24 +29,36 @@ type authInfo struct {
 	creds   *auth.Credentials // set when source is "login"
 }
 
-// resolveAuth picks credentials in precedence order: an API token (flag,
-// env var, or config file) first, then the stored login for the current
-// region. A login goes to its region's API host unless --api-host or
-// FH_API_HOST was given explicitly (explicitHost). It returns nil, nil when
-// there are none.
-func resolveAuth(ctx context.Context, cmd *cli.Command, explicitHost bool) (*authInfo, error) {
-	if token := cmd.String("token"); token != "" {
-		return &authInfo{source: "api_token", header: token, apiHost: resolveAPIHost(cmd)}, nil
+// explicitAuth records which auth flags were given by flag or env var, as
+// opposed to by a config file.
+type explicitAuth struct {
+	token, host bool
+}
+
+// resolveAuth picks credentials in precedence order: an API token given by
+// flag or env var, then the stored login for the current region, then an API
+// token from a config file. A config file can sit in world-writable /tmp, so
+// it never outranks a login. A login goes to its region's API host unless
+// --api-host or FH_API_HOST was given explicitly. It returns nil, nil when
+// there are no credentials.
+func resolveAuth(ctx context.Context, cmd *cli.Command, explicit explicitAuth) (*authInfo, error) {
+	token := cmd.String("token")
+	apiToken := &authInfo{source: "api_token", header: token, apiHost: resolveAPIHost(cmd)}
+	if token != "" && explicit.token {
+		return apiToken, nil
 	}
 	creds, err := auth.Token(ctx, auth.DefaultStore(), auth.CurrentRegion())
 	if errors.Is(err, auth.ErrNotLoggedIn) {
+		if token != "" {
+			return apiToken, nil
+		}
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	host := creds.APIHost
-	if explicitHost {
+	if explicit.host {
 		host = resolveAPIHost(cmd)
 	}
 	return &authInfo{source: "login", header: "Bearer " + creds.AccessToken, apiHost: host, creds: creds}, nil
@@ -70,6 +84,49 @@ func (u unauthorizedRecorder) RoundTrip(r *http.Request) (*http.Response, error)
 var apiHTTPClient = &http.Client{
 	Timeout:   60 * time.Second,
 	Transport: unauthorizedRecorder{next: http.DefaultTransport},
+}
+
+// withDebug returns a copy of c that dumps each request and response to w,
+// for --debug. The Authorization header is redacted so a pasted debug log
+// never leaks a token.
+func withDebug(c *http.Client, w io.Writer) *http.Client {
+	next := c.Transport
+	if next == nil {
+		next = http.DefaultTransport
+	}
+	debug := *c
+	debug.Transport = debugTransport{next: next, w: w}
+	return &debug
+}
+
+type debugTransport struct {
+	next http.RoundTripper
+	w    io.Writer
+}
+
+func (d debugTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	redacted := r.Clone(r.Context())
+	if redacted.Header.Get("Authorization") != "" {
+		redacted.Header.Set("Authorization", "[REDACTED]")
+	}
+	// DumpRequestOut consumes the body, so give it a copy and keep r's.
+	if r.GetBody != nil {
+		if body, err := r.GetBody(); err == nil {
+			redacted.Body = body
+		}
+	}
+	if dump, err := httputil.DumpRequestOut(redacted, r.GetBody != nil); err == nil {
+		fmt.Fprintf(d.w, "--> %s\n", dump)
+	}
+	resp, err := d.next.RoundTrip(r)
+	if err != nil {
+		fmt.Fprintf(d.w, "<-- error: %v\n", err)
+		return resp, err
+	}
+	if dump, err := httputil.DumpResponse(resp, true); err == nil {
+		fmt.Fprintf(d.w, "<-- %s\n", dump)
+	}
+	return resp, nil
 }
 
 func withLoginHint(err error) error {

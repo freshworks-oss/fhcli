@@ -140,20 +140,72 @@ func TestEnvTokenIsReadByEveryRootCommand(t *testing.T) {
 	}
 }
 
-func TestConfigFileTokenBeatsLogin(t *testing.T) {
+// A config file can be planted in world-writable /tmp, so its apiKey must
+// not take over a logged-in session (nor, with its apiHost, send that
+// session's requests elsewhere).
+func TestLoginBeatsConfigFileToken(t *testing.T) {
 	srv := newAuthServer(t)
 	storeLogin(t, loginCreds(srv.URL, time.Now().Add(time.Hour)))
 	cfg := filepath.Join(t.TempDir(), "firehydrant.cfg")
+	os.WriteFile(cfg, []byte("apiKey: config-token\napiHost: http://127.0.0.1:1\n"), 0o600)
+	t.Setenv("FH_API_KEY", "")
+	os.Unsetenv("FH_API_KEY")
+	t.Setenv("FH_API_HOST", "")
+	os.Unsetenv("FH_API_HOST")
+
+	_, stderr, err := runRoot(t, NewRootCmd("test", "0.0.0-test"), "fhcli", "--config", cfg, "incidents", "get", "inc-1")
+
+	if err != nil || srv.lastHeader() != "Bearer login-at" {
+		t.Errorf("Authorization = %q, err = %v, stderr = %s; want the login to win over a config-file apiKey", srv.lastHeader(), err, stderr)
+	}
+}
+
+func TestConfigFileTokenIsUsedWithoutLogin(t *testing.T) {
+	srv := newAuthServer(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	cfg := filepath.Join(t.TempDir(), "firehydrant.cfg")
 	os.WriteFile(cfg, []byte("apiKey: config-token\n"), 0o600)
-	// loadConfigFile exports config values as env vars; t.Setenv makes the
-	// test restore FH_API_KEY to unset afterwards.
 	t.Setenv("FH_API_KEY", "")
 	os.Unsetenv("FH_API_KEY")
 
 	_, _, err := runRoot(t, NewRootCmd("test", "0.0.0-test"), "fhcli", "--config", cfg, "--api-host", srv.URL, "incidents", "get", "inc-1")
 
 	if err != nil || srv.lastHeader() != "config-token" {
-		t.Errorf("Authorization = %q, err = %v; want the config token to win", srv.lastHeader(), err)
+		t.Errorf("Authorization = %q, err = %v; with no login the config token should be used", srv.lastHeader(), err)
+	}
+}
+
+func TestInitIgnoresExistingConfigFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	os.WriteFile(filepath.Join(home, "firehydrant.cfg"), []byte("apiKey: other-org-key\napiHost: other.example\nignoreErrors: false\n"), 0o600)
+	t.Setenv("FH_API_KEY", "")
+	os.Unsetenv("FH_API_KEY")
+	out := filepath.Join(t.TempDir(), "new.cfg")
+
+	if _, err := runCmdNoToken(t, "--config", out, "init", "--service", "x"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, _ := os.ReadFile(out)
+	if strings.Contains(string(data), "other-org-key") || strings.Contains(string(data), "other.example") || !strings.Contains(string(data), "ignoreErrors: true") {
+		t.Errorf("init copied values from an existing config file:\n%s", data)
+	}
+}
+
+func TestDebugDumpsRequestsWithTokenRedacted(t *testing.T) {
+	srv := newAuthServer(t)
+
+	_, stderr, err := runRoot(t, NewRootCmd("test", "0.0.0-test"), "fhcli", "--token", "secret-token", "--api-host", srv.URL, "--debug", "incidents", "get", "inc-1")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "GET /v1/incidents/inc-1") || !strings.Contains(stderr, "DB down") {
+		t.Errorf("--debug should dump the request and response to stderr, got:\n%s", stderr)
+	}
+	if strings.Contains(stderr, "secret-token") || !strings.Contains(stderr, "[REDACTED]") {
+		t.Errorf("--debug must redact the Authorization header, got:\n%s", stderr)
 	}
 }
 

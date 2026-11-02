@@ -79,6 +79,30 @@ func TestTokenInvalidGrantMeansLoginExpired(t *testing.T) {
 	}
 }
 
+func TestTokenFailedRefreshKeepsUnexpiredToken(t *testing.T) {
+	f := newFakeOAuth(t)
+	f.refreshDown = true
+	s := storeWith(t, loginFor(f, time.Now().Add(30*time.Second)))
+
+	c, err := Token(context.Background(), s, "us")
+
+	if err != nil || c.AccessToken != "at-1" {
+		t.Errorf("c = %+v, err = %v; a failed early refresh should fall back to the still-valid token", c, err)
+	}
+}
+
+func TestTokenFailedRefreshOfExpiredTokenIsAnError(t *testing.T) {
+	f := newFakeOAuth(t)
+	f.refreshDown = true
+	s := storeWith(t, loginFor(f, time.Now().Add(-time.Minute)))
+
+	_, err := Token(context.Background(), s, "us")
+
+	if err == nil || errors.Is(err, ErrLoginExpired) {
+		t.Errorf("err = %v, want a refresh error (not login expired)", err)
+	}
+}
+
 func TestTokenNotLoggedIn(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 

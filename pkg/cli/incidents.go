@@ -261,7 +261,10 @@ func incidentsNoteCmd(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return failCmd(cmd, errors.New("incident ID is required"))
 	}
-	incidentID := incidentArg(cmd)
+	incidentID, err := resolveIncidentArg(ctx, cmd)
+	if err != nil {
+		return failCmd(cmd, err)
+	}
 	body := cmd.String("body")
 
 	resp, err := client.Incidents.CreateIncidentNote(ctx, incidentID, components.CreateIncidentNote{
@@ -283,7 +286,10 @@ func incidentsChatCmd(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return failCmd(cmd, errors.New("incident ID is required"))
 	}
-	incidentID := incidentArg(cmd)
+	incidentID, err := resolveIncidentArg(ctx, cmd)
+	if err != nil {
+		return failCmd(cmd, err)
+	}
 	body := cmd.String("body")
 
 	resp, err := client.Incidents.CreateIncidentChatMessage(ctx, incidentID, components.CreateIncidentChatMessage{
@@ -305,7 +311,10 @@ func incidentsAlertsCmd(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return failCmd(cmd, errors.New("incident ID is required"))
 	}
-	incidentID := incidentArg(cmd)
+	incidentID, err := resolveIncidentArg(ctx, cmd)
+	if err != nil {
+		return failCmd(cmd, err)
+	}
 
 	resp, err := client.Alerts.ListIncidentAlerts(ctx, incidentID)
 	if err != nil {
@@ -324,7 +333,10 @@ func incidentsSummaryCmd(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return failCmd(cmd, errors.New("incident ID is required"))
 	}
-	incidentID := incidentArg(cmd)
+	incidentID, err := resolveIncidentArg(ctx, cmd)
+	if err != nil {
+		return failCmd(cmd, err)
+	}
 
 	resp, err := listAudienceSummaries(ctx, client, incidentID)
 	if err != nil {
@@ -350,7 +362,10 @@ func incidentsEventsCmd(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return failCmd(cmd, errors.New("incident ID is required"))
 	}
-	incidentID := incidentArg(cmd)
+	incidentID, err := resolveIncidentArg(ctx, cmd)
+	if err != nil {
+		return failCmd(cmd, err)
+	}
 
 	page := int(cmd.Int("page"))
 	perPage := int(cmd.Int("per-page"))
@@ -380,7 +395,10 @@ func incidentsTranscriptCmd(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return failCmd(cmd, errors.New("incident ID is required"))
 	}
-	incidentID := incidentArg(cmd)
+	incidentID, err := resolveIncidentArg(ctx, cmd)
+	if err != nil {
+		return failCmd(cmd, err)
+	}
 
 	query := url.Values{}
 	if s := cmd.String("sort"); s != "" {
@@ -404,7 +422,10 @@ func incidentsUpdateCmd(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return failCmd(cmd, errors.New("incident ID is required"))
 	}
-	incidentID := incidentArg(cmd)
+	incidentID, err := resolveIncidentArg(ctx, cmd)
+	if err != nil {
+		return failCmd(cmd, err)
+	}
 
 	update := components.UpdateIncident{}
 
@@ -438,7 +459,10 @@ func incidentsResolveCmd(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return failCmd(cmd, errors.New("incident ID is required"))
 	}
-	incidentID := incidentArg(cmd)
+	incidentID, err := resolveIncidentArg(ctx, cmd)
+	if err != nil {
+		return failCmd(cmd, err)
+	}
 
 	var reqBody *operations.ResolveIncidentRequestBody
 	if m := cmd.String("milestone"); m != "" {
@@ -468,7 +492,10 @@ func incidentsTriageCmd(ctx context.Context, cmd *cli.Command) error {
 	if cmd.NArg() < 1 {
 		return failCmd(cmd, errors.New("incident ID is required"))
 	}
-	incidentID := incidentArg(cmd)
+	incidentID, err := resolveIncidentArg(ctx, cmd)
+	if err != nil {
+		return failCmd(cmd, err)
+	}
 
 	var (
 		mu     sync.Mutex
@@ -694,9 +721,26 @@ func incidentsContextCmd(ctx context.Context, cmd *cli.Command) error {
 	return outputResult(cmd, result)
 }
 
-// incidentArg is the incident ID argument, accepting "#623" for incident
-// number 623. The API resolves bare numbers itself; an unstripped "#" would
-// otherwise become a URL fragment and drop the ID from the request.
+// incidentArg is the incident ID argument with any "#" stripped (an
+// unstripped "#" would become a URL fragment and drop the ID). Only
+// GET /v1/incidents/{id} accepts a number as-is; every other incident
+// command uses resolveIncidentArg.
 func incidentArg(cmd *cli.Command) string {
 	return strings.TrimPrefix(cmd.Args().First(), "#")
+}
+
+// resolveIncidentArg is the incident ID argument, resolving an incident
+// number ("623" or "#623") to its ID the way `fhcli api` does: some
+// endpoints silently return nothing for a raw number.
+func resolveIncidentArg(ctx context.Context, cmd *cli.Command) (string, error) {
+	arg := cmd.Args().First()
+	number, ok := incidentNumber(arg)
+	if !ok {
+		return incidentArg(cmd), nil
+	}
+	client, err := getRawClient(ctx)
+	if err != nil {
+		return "", err
+	}
+	return resolveIncidentNumber(ctx, client, number)
 }

@@ -67,6 +67,30 @@ func TestAPIDryRunPrintsRequestWithoutSending(t *testing.T) {
 	}
 }
 
+func TestAPIDataKeepsLargeIntegersExact(t *testing.T) {
+	ts := failIfCalled(t)
+
+	out, _, err := runMini(t, ts.URL, "api", "incidents", "create-incident",
+		"--data", `{"name": "DB down", "external_id": 12345678901234567, "big": 1000000000000000000000}`, "--dry-run")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "12345678901234567") || !strings.Contains(out, "1000000000000000000000") {
+		t.Errorf("--data numbers were not sent as written:\n%s", out)
+	}
+}
+
+func TestAPIDataRejectsTrailingJSON(t *testing.T) {
+	ts := failIfCalled(t)
+
+	_, _, err := runMini(t, ts.URL, "api", "incidents", "create-incident", "--data", `{"name": "a"} {"name": "b"}`, "--dry-run")
+
+	if err == nil {
+		t.Error("--data with two JSON objects should be rejected")
+	}
+}
+
 func TestAPIDryRunIncludesQuery(t *testing.T) {
 	ts := failIfCalled(t)
 

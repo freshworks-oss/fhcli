@@ -90,7 +90,13 @@ func Login(ctx context.Context, region Region, opts LoginOptions) (*Credentials,
 	for _, l := range listeners {
 		go srv.Serve(l)
 	}
-	defer srv.Close()
+	// Shutdown, not Close: let the callback finish writing its page, so the
+	// browser shows the outcome rather than a reset connection.
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		srv.Shutdown(shutdownCtx)
+	}()
 
 	fmt.Fprintf(prompt, "Open this URL to log in to FireHydrant:\n\n  %s\n\n", authURL)
 	if opts.OpenBrowser != nil {
@@ -176,13 +182,21 @@ type callbackResult struct {
 	err  error
 }
 
-// callbackHandler serves GET /callback, delivering the first result and
-// telling the browser the outcome. Other paths (e.g. /favicon.ico) get 404.
+// callbackHandler serves GET /callback, delivering the first result for this
+// login's state and telling the browser the outcome. A callback with any
+// other state (a stale tab, or a page probing the port) is turned away
+// without ending the login. Other paths (e.g. /favicon.ico) get 404.
 func callbackHandler(state string, results chan<- callbackResult) http.Handler {
 	var once sync.Once
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /callback", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if q.Get("state") != state {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, page("This callback doesn't match the login in progress. Return to your terminal."))
+			return
+		}
 		res := callbackResult{code: q.Get("code")}
 		switch {
 		case q.Get("error") != "":
@@ -191,8 +205,6 @@ func callbackHandler(state string, results chan<- callbackResult) http.Handler {
 				msg += ": " + d
 			}
 			res = callbackResult{err: errors.New("login failed: " + msg)}
-		case q.Get("state") != state:
-			res = callbackResult{err: errors.New("login failed: state mismatch")}
 		case res.code == "":
 			res = callbackResult{err: errors.New("login failed: callback had no code")}
 		}
@@ -202,7 +214,6 @@ func callbackHandler(state string, results chan<- callbackResult) http.Handler {
 			delivered = true
 		})
 
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		switch {
 		case !delivered:
 			fmt.Fprint(w, page("This login was already handled. Return to your terminal."))
@@ -219,14 +230,15 @@ func page(msg string) string {
 	return `<!doctype html><meta charset="utf-8"><title>fhcli login</title><body style="font-family:system-ui;margin:4em"><p>` + msg + `</p></body>`
 }
 
-type identity struct {
+// Identity is the /v1/current_user response fields fhcli uses.
+type Identity struct {
 	Name             string `json:"name"`
 	Email            string `json:"email"`
 	OrganizationID   string `json:"organization_id"`
 	OrganizationName string `json:"organization_name"`
 }
 
-func fetchIdentity(ctx context.Context, apiHost, accessToken string) (*identity, error) {
+func fetchIdentity(ctx context.Context, apiHost, accessToken string) (*Identity, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(apiHost, "/")+"/v1/current_user", nil)
 	if err != nil {
 		return nil, err
@@ -242,7 +254,7 @@ func fetchIdentity(ctx context.Context, apiHost, accessToken string) (*identity,
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("looking up the logged-in user: GET /v1/current_user returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	var id identity
+	var id Identity
 	if err := json.Unmarshal(body, &id); err != nil {
 		return nil, fmt.Errorf("looking up the logged-in user: %w", err)
 	}

@@ -131,12 +131,7 @@ func whoamiCmd(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return failCmd(cmd, err)
 	}
-	var user struct {
-		Name             string `json:"name"`
-		Email            string `json:"email"`
-		OrganizationID   string `json:"organization_id"`
-		OrganizationName string `json:"organization_name"`
-	}
+	var user auth.Identity
 	if err := json.Unmarshal(body, &user); err != nil {
 		return failCmd(cmd, errors.New("unexpected /v1/current_user response"))
 	}

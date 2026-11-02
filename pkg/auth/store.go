@@ -85,13 +85,13 @@ func SetCurrentRegion(name string) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(localConfigPath(), data)
+	return WriteFileAtomic(localConfigPath(), data)
 }
 
 // writeFileAtomic writes data to path with mode 0600, creating the directory
 // with mode 0700, via a temp file and rename so readers never see a partial
 // file.
-func writeFileAtomic(path string, data []byte) error {
+func WriteFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
@@ -150,7 +150,7 @@ func (s fileStore) Save(c *Credentials) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(s.path(c.Region), data)
+	return WriteFileAtomic(s.path(c.Region), data)
 }
 
 func (s fileStore) Delete(region string) error {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -602,9 +603,16 @@ func readData(value string) (map[string]any, error) {
 		return nil, fmt.Errorf("read --data: %w", err)
 	}
 
+	// UseNumber keeps numbers as written: decoding to float64 would round
+	// integers above 2^53 (IDs) and re-encode large ones as 1e+21.
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	var body map[string]any
-	if err := json.Unmarshal(raw, &body); err != nil || body == nil {
+	if err := dec.Decode(&body); err != nil || body == nil {
 		return nil, errors.New("--data must be a JSON object")
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, errors.New("--data must be a single JSON object")
 	}
 	return body, nil
 }

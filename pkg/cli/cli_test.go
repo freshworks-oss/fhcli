@@ -577,6 +577,26 @@ func TestIncidentsNoteCmd(t *testing.T) {
 	}
 }
 
+func TestIncidentsCommandsResolveIncidentNumbers(t *testing.T) {
+	var notePath string
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/incidents/623", jsonHandler(200, map[string]any{"id": "inc-uuid", "number": 623}))
+	mux.HandleFunc("POST /v1/incidents/{id}/notes", func(w http.ResponseWriter, r *http.Request) {
+		notePath = r.URL.Path
+		jsonHandler(201, map[string]any{"id": "note-1"})(w, r)
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	if _, err := runCmd(t, ts.URL, "incidents", "note", "#623", "--body", "hi"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if notePath != "/v1/incidents/inc-uuid/notes" {
+		t.Errorf("note posted to %q; the incident number should be resolved to its ID first", notePath)
+	}
+}
+
 func TestIncidentsChatCmd(t *testing.T) {
 	var receivedBody map[string]any
 
