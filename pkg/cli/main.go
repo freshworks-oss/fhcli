@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -353,8 +354,32 @@ func reportError(cmd *cli.Command, err error) {
 	if cmd.Bool("interactive") {
 		fmt.Fprintln(os.Stderr, "Error:", err.Error())
 	} else {
-		outputJSON(os.Stderr, map[string]string{"error": err.Error()})
+		outputJSON(os.Stderr, errorOutput(err))
 	}
+}
+
+// errorOutput is the JSON written to stderr for err. "error" is always the
+// message. An API failure adds status, method, path and the response body
+// (parsed when it is JSON), so agents can branch on .status and read
+// .response.detail without unescaping the message.
+func errorOutput(err error) map[string]any {
+	out := map[string]any{"error": err.Error()}
+	var ae *apiError
+	if !errors.As(err, &ae) {
+		return out
+	}
+	out["status"] = ae.status
+	out["method"] = ae.method
+	out["path"] = ae.path
+	var body any
+	switch {
+	case ae.body == "":
+	case json.Unmarshal([]byte(ae.body), &body) == nil:
+		out["response"] = body
+	default:
+		out["response"] = ae.body
+	}
+	return out
 }
 
 // parseKV parses a "k=v,k2=v2" string into a map.

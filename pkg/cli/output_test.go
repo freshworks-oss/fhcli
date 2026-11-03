@@ -84,3 +84,55 @@ func TestPipedErrorsAreCompact(t *testing.T) {
 		t.Errorf("stderr = %q, want one compact JSON line", got)
 	}
 }
+
+// API failures carry the status, request and parsed response body next to the
+// message, so agents can branch on .status instead of parsing the string.
+func TestAPIErrorsAreStructured(t *testing.T) {
+	ts := newTestServer(t, map[string]http.HandlerFunc{
+		"GET /v1/alerts/": jsonHandler(404, map[string]any{"detail": "record not found"}),
+	})
+	defer ts.Close()
+
+	_, stderr, err := runCmdFull(t, ts.URL, "api", "alerts", "get-alert", "a-1")
+
+	if err == nil {
+		t.Fatal("want a non-nil error for a 404")
+	}
+	var got struct {
+		Error    string         `json:"error"`
+		Status   int            `json:"status"`
+		Method   string         `json:"method"`
+		Path     string         `json:"path"`
+		Response map[string]any `json:"response"`
+	}
+	if jerr := json.Unmarshal([]byte(stderr), &got); jerr != nil {
+		t.Fatalf("stderr is not JSON: %v\n%s", jerr, stderr)
+	}
+	if got.Status != 404 || got.Method != "GET" || got.Path != "/v1/alerts/a-1" || got.Response["detail"] != "record not found" {
+		t.Errorf("stderr = %s, want status, method, path and the parsed response", stderr)
+	}
+	if !strings.Contains(got.Error, "404") {
+		t.Errorf("error message = %q, want it kept", got.Error)
+	}
+}
+
+// A non-JSON error body (an HTML 502 from a proxy) is kept as a string.
+func TestAPIErrorKeepsNonJSONBodyAsText(t *testing.T) {
+	ts := newTestServer(t, map[string]http.HandlerFunc{
+		"GET /v1/alerts/": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(502)
+			w.Write([]byte("<html>Bad Gateway</html>"))
+		},
+	})
+	defer ts.Close()
+
+	_, stderr, _ := runCmdFull(t, ts.URL, "api", "alerts", "get-alert", "a-1")
+
+	var got map[string]any
+	if jerr := json.Unmarshal([]byte(stderr), &got); jerr != nil {
+		t.Fatalf("stderr is not JSON: %v\n%s", jerr, stderr)
+	}
+	if got["status"] != float64(502) || got["response"] != "<html>Bad Gateway</html>" {
+		t.Errorf("stderr = %s, want status 502 and the body as text", stderr)
+	}
+}

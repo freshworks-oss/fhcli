@@ -173,7 +173,7 @@ fhcli api incidents list-incidents --status open --per-page 5
 ```
 
 - Prefer a curated command above (`triage`, `context`, `note`, `update`, …) when one fits.
-- **To find an operation, run `fhcli search <what you want to do>` first** instead of browsing `--help`: area names follow the API's internals (the severity matrix is under `incident-settings`; status pages are the `nunc` operations). Each result gives the ready-to-run `command` and its positional `args`; then check `--help` on the one you pick.
+- **To find an operation, run `fhcli search <what you want to do>` first** instead of browsing `--help`: area names follow the API's internals (the severity matrix is under `incident-settings`; status pages are the `nunc` operations). Each result gives the ready-to-run `command`, its positional `args`, and `required` (the flags, and `data.<field>` body fields set via `--data`, that the call can't be sent without); check `--help` on the one you pick for the rest.
 - Path parameters are positional arguments, in the order shown by `--help` (e.g. `<incident_id> <role_id>`).
 - Incidents can be referenced by number (`623` or `#623`) anywhere an incident ID is expected — in the curated commands and in `fhcli api`, which resolves the number to the incident's ID before calling (some endpoints silently return nothing for a raw number). This includes `--related-to incident/623` on `create-ticket`.
 - Simple body fields are flags. Nested fields go in `--data '{...}'`, `--data @file.json`, or `--data -` (stdin). Flags override keys in `--data`.
@@ -184,8 +184,15 @@ fhcli api incidents list-incidents --status open --per-page 5
 - **Before running any non-GET `fhcli api` command, run it with `--dry-run` and show the user the request.** Send it only after they agree.
 - DELETE operations refuse to run without `--yes`. **Never pass `--yes` unless the user explicitly confirmed that deletion in this conversation.**
 - An operation's `--help` ends with a "Response:" line listing the documented response fields (for lists, `data[] (…)` shows each item's fields) — use it to write `jq` filters without a probing call. It comes from the spec, so treat it as a guide, not a guarantee.
-- Responses are the API's raw JSON. Errors are JSON on stderr with a non-zero exit code. A timeout (504) error names the date/time filter flags to narrow the request with — retry with a tighter window (e.g. `--start-datetime`) rather than the same request.
+- Responses are the API's raw JSON. Errors are JSON on stderr with a non-zero exit code: `error` is the message, and an API failure adds `status`, `method`, `path` and `response` (the API's error body, parsed), so branch on `.status` (e.g. 404 = not found or not visible to this org) and read `.response.detail`. A timeout (504) error names the date/time filter flags to narrow the request with — retry with a tighter window (e.g. `--start-datetime`) rather than the same request.
 - **Always pass `--visibility` explicitly on notes** (`private_to_org` unless the user asked for a public update): `open_to_public` is visible outside the organization.
+
+### Recipe: comment on an alert
+
+Comments live on the alert's conversation, not the alert itself:
+
+1. `fhcli api alerts get-alert <alert_id> | jq -r '.conversations[0].id'` — the conversation ID (an opaque string, not the alert ID).
+2. Write the comment to a file, then `fhcli api conversations create-comment <conversation_id> --body @comment.md --dry-run`; send it after the user agrees.
 
 ### Recipe: create follow-ups for an incident
 
@@ -342,7 +349,7 @@ All commands except `event`, `execute` and `init` output JSON by default (those 
 fhcli incidents list --status active | jq '.data[] | {id, name, severity}'
 ```
 
-`incidents`, `services`, and `teams` commands exit non-zero on failure and write `{"error": "..."}` to stderr — check the exit code before trusting stdout. (`event` and `execute` exit 0 on API errors by default so they never break CI; pass `--ignore-errors=false` to change that.)
+`incidents`, `services`, and `teams` commands exit non-zero on failure and write `{"error": "..."}` (plus `status`, `method`, `path`, `response` for API failures) to stderr — check the exit code before trusting stdout. (`event` and `execute` exit 0 on API errors by default so they never break CI; pass `--ignore-errors=false` to change that.)
 
 ## Authentication
 
