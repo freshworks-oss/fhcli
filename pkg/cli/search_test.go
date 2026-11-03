@@ -11,12 +11,13 @@ import (
 )
 
 type searchOutput struct {
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-	Method  string   `json:"method"`
-	Path    string   `json:"path"`
-	Summary string   `json:"summary"`
-	Score   float64  `json:"score"`
+	Command  string   `json:"command"`
+	Args     []string `json:"args"`
+	Method   string   `json:"method"`
+	Path     string   `json:"path"`
+	Summary  string   `json:"summary"`
+	Required []string `json:"required"`
+	Score    float64  `json:"score"`
 }
 
 func runSearch(t *testing.T, args ...string) ([]searchOutput, string, error) {
@@ -60,6 +61,43 @@ func TestSearchCmdListsPathParamsAsArgs(t *testing.T) {
 	}
 	if out[0].Command != "fhcli api incidents create-incident-note" || strings.Join(out[0].Args, ",") != "incident_id" {
 		t.Errorf("first = %+v, want create-incident-note with args [incident_id]", out[0])
+	}
+}
+
+// Each hit names the inputs the call can't be sent without, so an agent can
+// build the command from the search result instead of running --help first.
+func TestSearchCmdListsRequiredInputs(t *testing.T) {
+	out, _, err := runSearch(t, "--limit", "0", "comment", "on", "alert")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range out {
+		if h.Command == "fhcli api conversations create-comment" {
+			if strings.Join(h.Required, ",") != "--body" {
+				t.Errorf("create-comment required = %v, want [--body]", h.Required)
+			}
+			return
+		}
+	}
+	t.Fatal("create-comment not found")
+}
+
+// Required body fields that have no flag are named as data.<field>, since
+// they can only be set with --data.
+func TestSearchHitsNameRequiredDataOnlyFields(t *testing.T) {
+	op := spec.Operation{ID: "make_widget", Tag: "Widgets", Method: "POST", Path: "/v1/widgets", HasBody: true,
+		QueryParams: []spec.Param{{Name: "dry", Type: "boolean"}},
+		BodyFields: []spec.Param{
+			{Name: "name", Type: "string", Required: true},
+			{Name: "parts", Type: "array", ItemType: "object", Required: true},
+			{Name: "color", Type: "string"},
+		}}
+
+	hit := searchHits([]spec.Result{{Operation: op}})[0]
+
+	if got := strings.Join(hit.Required, ","); got != "--name,data.parts" {
+		t.Errorf("required = %q, want --name,data.parts", got)
 	}
 }
 

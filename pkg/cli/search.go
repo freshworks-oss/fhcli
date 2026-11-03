@@ -21,7 +21,10 @@ type searchHit struct {
 	Method  string   `json:"method"`
 	Path    string   `json:"path"`
 	Summary string   `json:"summary"`
-	Score   float64  `json:"score"`
+	// Required names the inputs the call needs besides Args: --flag for a
+	// generated flag, data.<field> for a body field only settable via --data.
+	Required []string `json:"required"`
+	Score    float64  `json:"score"`
 }
 
 func newSearchCmd(sp *spec.Spec, loadErr error) *cli.Command {
@@ -52,6 +55,7 @@ func newSearchCmd(sp *spec.Spec, loadErr error) *cli.Command {
 }
 
 func searchHits(results []spec.Result) []searchHit {
+	reserved := reservedFlagNames()
 	hits := make([]searchHit, 0, len(results))
 	for _, r := range results {
 		op := r.Operation
@@ -60,15 +64,34 @@ func searchHits(results []spec.Result) []searchHit {
 			args = append(args, p.Name)
 		}
 		hits = append(hits, searchHit{
-			Command: apiCommandLine(op),
-			Args:    args,
-			Method:  op.Method,
-			Path:    op.Path,
-			Summary: op.Summary,
-			Score:   math.Round(r.Score*100) / 100,
+			Command:  apiCommandLine(op),
+			Args:     args,
+			Method:   op.Method,
+			Path:     op.Path,
+			Summary:  op.Summary,
+			Required: requiredInputs(op, reserved),
+			Score:    math.Round(r.Score*100) / 100,
 		})
 	}
 	return hits
+}
+
+// requiredInputs lists op's required flags and --data-only body fields, using
+// the same flag mapping as `fhcli api`, so the names match its flags.
+func requiredInputs(op spec.Operation, reserved map[string]bool) []string {
+	_, bindings, dataOnly := operationFlags(op, reserved)
+	required := []string{}
+	for _, b := range bindings {
+		if b.param.Required {
+			required = append(required, "--"+b.flag)
+		}
+	}
+	for _, p := range dataOnly {
+		if p.Required {
+			required = append(required, "data."+p.Name)
+		}
+	}
+	return required
 }
 
 func printSearchTable(hits []searchHit) error {
@@ -77,6 +100,11 @@ func printSearchTable(hits []searchHit) error {
 		command := h.Command
 		for _, a := range h.Args {
 			command += " <" + a + ">"
+		}
+		for _, r := range h.Required {
+			if strings.HasPrefix(r, "--") {
+				command += " " + r + " <" + strings.TrimPrefix(r, "--") + ">"
+			}
 		}
 		fmt.Fprintf(w, "%s\t%s\n", command, h.Summary)
 	}
