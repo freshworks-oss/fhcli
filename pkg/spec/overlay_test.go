@@ -56,6 +56,8 @@ func TestOverlayAddsSeeAlsoAndNotes(t *testing.T) {
 		"bulk_update_incident_milestones":     "list_lifecycle_phases",
 		"create_ticket":                       "list_ticketing_projects",
 		"update_incident_retrospective_field": "create_incident_retrospective_dynamic_input",
+		"get_alert":                           "create_comment",
+		"create_comment":                      "get_alert",
 	} {
 		op := findOp(t, s, id)
 		found := false

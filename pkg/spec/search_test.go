@@ -329,3 +329,19 @@ func TestSearchMatchesParameterDescriptionsAndEnums(t *testing.T) {
 		t.Errorf("param description search = %v", got)
 	}
 }
+
+// Queries from the 2026-11-03 Signals session: commenting on an alert goes
+// through conversations, which nothing in the spec ties to alerts.
+func TestSearchRealSpecFindsAlertComments(t *testing.T) {
+	s := loadEmbeddedSpec(t)
+
+	for _, q := range []string{"alert note comment", "comment on alert", "add comment to alert"} {
+		if r := rank(s.Search(q, 0), "create_comment"); r == 0 || r > 2 {
+			t.Errorf("search %q: create_comment ranked %d, want top 2", q, r)
+		}
+	}
+	// Incident notes are their own operation; comments must not displace it.
+	if r := rank(s.Search("add note to incident", 0), "create_incident_note"); r != 1 {
+		t.Errorf("search %q: create_incident_note ranked %d, want 1", "add note to incident", r)
+	}
+}

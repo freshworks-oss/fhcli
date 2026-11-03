@@ -54,6 +54,23 @@ var overlay = []overlayEntry{
 		Notes:     []string{"Lists the milestone types (slugs) in lifecycle order, as used by bulk_update_incident_milestones."},
 	},
 	{
+		// The spec says "Creates a comment for a project", a stale locale
+		// string (packs/conversations/app/locales/conversations.en.yml).
+		// Conversations hang off alerts, incidents, timeline events and
+		// retrospective questions (their entities expose conversations[]).
+		Operation: "create_comment",
+		SeeAlso:   []string{"get_alert", "list_comments"},
+		Notes: []string{
+			"Adds a comment to a conversation: an alert's, an incident's, or a timeline event's. " +
+				"conversation_id is the resource's .conversations[].id (e.g. from get_alert), not the alert or incident ID.",
+		},
+	},
+	{
+		Operation: "get_alert",
+		SeeAlso:   []string{"create_comment"},
+		Notes:     []string{"To comment on this alert, pass .conversations[0].id to create_comment."},
+	},
+	{
 		Operation: "create_incident_note",
 		Notes: []string{
 			"Notes default to private_to_org. open_to_public is visible outside your organization; " +
