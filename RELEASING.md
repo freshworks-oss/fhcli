@@ -46,4 +46,8 @@ Breaking the change-event interface (`event`, `execute`, `init`, their flags, en
 
 ## Testing release changes locally
 
-`make snapshot` runs goreleaser in snapshot mode (`goreleaser release --snapshot --clean`). It builds every archive into `dist/` without publishing anything and needs goreleaser v2 installed (`brew install goreleaser`). CI runs the same build on every pull request.
+`make snapshot` builds every archive into `dist/` without publishing anything. CI runs the same build on every pull request.
+
+goreleaser isn't installed separately. The Makefile runs it with `go run` at the version pinned in `GORELEASER`, so local builds, CI and releases all use the same goreleaser version. To upgrade it, change that one line.
+
+The workflows use only GitHub's own actions (`actions/checkout`, `actions/setup-go`). The freshworks-oss Actions policy only allows actions from GitHub, the enterprise, or an allowlist, and it rejects `goreleaser/goreleaser-action@v6`. Check that policy before adding any third-party action.

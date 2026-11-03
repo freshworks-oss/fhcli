@@ -171,7 +171,7 @@ make build       # ./fhcli, versioned from `git describe`
 make test        # go vet + race tests
 make test-live   # tests against the live API spec instead of the embedded one
 make spec        # refresh the embedded spec (pkg/spec/spec.json)
-make snapshot    # build all release archives locally (needs goreleaser v2)
+make snapshot    # build all release archives into dist/ without publishing
 ```
 
 Pull requests run CI: vet, tests, and a goreleaser snapshot build. See [RELEASING.md](RELEASING.md) to cut a release and [CHANGELOG.md](CHANGELOG.md) for what changed.

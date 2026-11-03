@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := build
-.PHONY: build test snapshot install spec test-live
+.PHONY: build test snapshot release install spec test-live
 
 REVISION := $(shell cat git-revision 2>/dev/null || git rev-parse --short HEAD)
 # The git tag is the only source of the version: releases are cut by pushing
@@ -14,9 +14,20 @@ test:
 	go vet ./...
 	go test -race ./...
 
-# Build the release archives locally without publishing (needs goreleaser v2).
+# goreleaser runs via `go run` at a pinned version, so CI and local builds
+# match and CI needs no third-party action (the freshworks-oss Actions
+# allowlist rejects goreleaser/goreleaser-action@v6). It requires a newer Go
+# than go.mod; GOTOOLCHAIN=auto fetches it.
+GORELEASER := go run github.com/goreleaser/goreleaser/v2@v2.18.3
+
+# Build every release archive into dist/ without publishing.
 snapshot:
-	goreleaser release --snapshot --clean
+	$(GORELEASER) release --snapshot --clean
+
+# Publish a GitHub release for the tag at HEAD. Run by CI on a v* tag push;
+# needs GITHUB_TOKEN.
+release:
+	$(GORELEASER) release --clean
 
 install: build
 	install -m 0755 fhcli $(shell go env GOPATH)/bin/fhcli
