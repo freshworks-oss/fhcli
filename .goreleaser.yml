@@ -1,18 +1,59 @@
+# Release config for goreleaser v2. A pushed vX.Y.Z tag runs it from
+# .github/workflows/release.yml; see RELEASING.md.
+version: 2
+
+project_name: fhcli
+
+before:
+  hooks:
+    - go mod tidy -diff
+
 builds:
-- env:
-  - CGO_ENABLED=0
-  binary: fhcli
-  goos:
-    - linux
-    - darwin
-  main: ./cmd/main.go
+  - main: ./cmd/main.go
+    binary: fhcli
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .ShortCommit }}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+      - "386"
+    ignore:
+      - goos: darwin
+        goarch: "386"
+
+archives:
+  # Same asset names as v0.0.14+: fhcli_{version}_{os}_{arch}.tar.gz.
+  # CI scripts build download URLs from this, so don't change it.
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - readme.md
+
 checksum:
-  name_template: 'checksums.txt'
+  name_template: checksums.txt
+
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  version_template: "{{ incpatch .Version }}-next"
+
 changelog:
   sort: asc
   filters:
     exclude:
-    - '^docs:'
-    - '^test:'
+      - "^docs:"
+      - "^test:"
+      - "^Merge pull request"
+
+release:
+  # Pre-release tags such as v0.2.0-rc.1 are published as pre-releases.
+  prerelease: auto
+  footer: |
+    Install: download the archive for your platform below, or see the
+    [readme](https://github.com/freshworks-oss/fhcli#installation).
+    Full notes: [CHANGELOG.md](https://github.com/freshworks-oss/fhcli/blob/{{ .Tag }}/CHANGELOG.md).
