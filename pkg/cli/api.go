@@ -154,7 +154,7 @@ func operationFlags(op spec.Operation, reserved map[string]bool) ([]cli.Flag, []
 			return
 		}
 		used[name] = true
-		flags = append(flags, newParamFlag(name, p))
+		flags = append(flags, newParamFlag(name, p, inBody))
 		bindings = append(bindings, flagBinding{flag: name, param: p, inBody: inBody})
 	}
 
@@ -212,7 +212,9 @@ func describeField(p spec.Param) string {
 	return p.Name + " (" + kind + ")"
 }
 
-func newParamFlag(name string, p spec.Param) cli.Flag {
+// newParamFlag builds the flag for p. String body flags advertise @file and
+// @- (see readFlagFile); query flags take @ literally, so they don't.
+func newParamFlag(name string, p spec.Param, inBody bool) cli.Flag {
 	usage := p.Description
 	if len(p.Enum) > 0 {
 		usage += " (one of: " + strings.Join(p.Enum, ", ") + ")"
@@ -222,6 +224,9 @@ func newParamFlag(name string, p spec.Param) cli.Flag {
 	}
 	if p.Required {
 		usage += " (required)"
+	}
+	if inBody && isTextParam(p) {
+		usage += " (accepts @file, or @- for stdin)"
 	}
 	// urfave/cli treats `text` in a usage string as the value placeholder.
 	usage = strings.TrimSpace(strings.ReplaceAll(usage, "`", "'"))
@@ -238,6 +243,15 @@ func newParamFlag(name string, p spec.Param) cli.Flag {
 	default:
 		return &cli.StringFlag{Name: name, Usage: usage}
 	}
+}
+
+// isTextParam reports whether p becomes a plain string flag.
+func isTextParam(p spec.Param) bool {
+	switch p.Type {
+	case "integer", "number", "boolean", "array":
+		return false
+	}
+	return true
 }
 
 // reservedFlagNames are names generated flags may not use: root flags are

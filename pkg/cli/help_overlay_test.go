@@ -56,3 +56,23 @@ func TestRetrospectiveValueIsATextFlag(t *testing.T) {
 	}
 	t.Error("no --value flag")
 }
+
+// String body flags read @file and @- (stdin); help must say so, or agents
+// fall back to --body "$(cat file)" and its quoting problems.
+func TestHelpAdvertisesFileInputOnStringBodyFlags(t *testing.T) {
+	c := apiCommand(t, "conversations", "create-comment")
+
+	if u := flagUsage(t, c, "body"); !strings.Contains(u, "@file") || !strings.Contains(u, "@-") {
+		t.Errorf("--body usage = %q, want @file and @- advertised", u)
+	}
+}
+
+// Query flags take @ literally (e.g. a search for "@alice"), so their help
+// must not advertise file input.
+func TestHelpDoesNotAdvertiseFileInputOnQueryFlags(t *testing.T) {
+	c := apiCommand(t, "alerts", "list-alerts")
+
+	if u := flagUsage(t, c, "query"); strings.Contains(u, "@file") {
+		t.Errorf("--query usage = %q, should not advertise @file", u)
+	}
+}
