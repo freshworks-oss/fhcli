@@ -1,0 +1,110 @@
+{
+  "swagger": "2.0",
+  "paths": {
+    "/v1/severities": {
+      "get": {
+        "operationId": "list_severities",
+        "tags": ["Incident Settings"],
+        "summary": "List severities",
+        "description": "Lists severities for the organization",
+        "parameters": []
+      }
+    },
+    "/v1/incidents": {
+      "get": {
+        "operationId": "list_incidents",
+        "tags": ["Incidents"],
+        "summary": "List incidents",
+        "description": "List all incidents",
+        "responses": {"200": {"description": "ok", "schema": {"$ref": "#/definitions/paginated_incidents"}}},
+        "parameters": [
+          {"name": "page", "in": "query", "type": "integer", "description": "Page number, see `per_page`"},
+          {"name": "status", "in": "query", "type": "string", "description": "Incident status", "enum": ["open", "resolved"]},
+          {"name": "tags", "in": "query", "type": "array", "items": {"type": "string"}},
+          {"name": "custom_fields[field_id]", "in": "query", "type": "array", "items": {"type": "string"}},
+          {"name": "custom_fields[value]", "in": "query", "type": "array", "items": {"type": "string"}},
+          {"name": "token", "in": "query", "type": "string"}
+        ]
+      },
+      "post": {
+        "operationId": "create_incident",
+        "tags": ["Incidents"],
+        "summary": "Create an incident",
+        "description": "Create a new incident",
+        "responses": {"201": {"description": "created", "schema": {"$ref": "#/definitions/incident_entity"}}},
+        "parameters": [
+          {"name": "create_incident", "in": "body", "required": true, "schema": {"$ref": "#/definitions/create_incident"}}
+        ]
+      }
+    },
+    "/v1/incidents/{incident_id}/roles/{role_id}": {
+      "get": {
+        "operationId": "get_incident_role",
+        "tags": ["Incidents"],
+        "summary": "Get an incident role",
+        "description": "Retrieve a role assignment",
+        "responses": {"200": {"description": "ok", "schema": {"$ref": "#/definitions/role_entity"}}},
+        "parameters": [
+          {"name": "role_id", "in": "path", "type": "string", "required": true},
+          {"name": "incident_id", "in": "path", "type": "string", "required": true}
+        ]
+      },
+      "delete": {
+        "operationId": "delete_incident_role",
+        "tags": ["Incidents"],
+        "summary": "Delete an incident role",
+        "description": "Remove a role assignment",
+        "parameters": [
+          {"name": "incident_id", "in": "path", "type": "string", "required": true},
+          {"name": "role_id", "in": "path", "type": "string", "required": true}
+        ]
+      }
+    },
+    "/v1/incidents/{incident_id}/close": {
+      "put": {
+        "operationId": "close_incident",
+        "tags": ["Incidents"],
+        "summary": "Close an incident",
+        "description": "Closes an incident",
+        "parameters": [
+          {"name": "incident_id", "in": "path", "type": "string", "required": true},
+          {"name": "milestone", "in": "formData", "type": "string"},
+          {"name": "notify", "in": "formData", "type": "boolean"},
+          {"name": "fields[label]", "in": "formData", "type": "string"}
+        ]
+      }
+    },
+    "/v1/metrics/mttx": {
+      "get": {
+        "operationId": "get_mttx",
+        "tags": ["Metrics/Reporting"],
+        "summary": "Get MTTX",
+        "description": "Mean time to X",
+        "parameters": [
+          {"name": "startIndex", "in": "query", "type": "integer"}
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "create_incident": {"$ref": "#/definitions/create_incident_body"},
+    "create_incident_body": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "description": "Incident name"},
+        "priority": {"type": "integer"},
+        "customer_impact": {"type": "number"},
+        "tag_list": {"type": "array", "items": {"type": "string"}},
+        "labels": {"type": "object"},
+        "impacts": {"type": "array", "items": {"$ref": "#/definitions/impact"}},
+        "data": {"type": "string"}
+      }
+    },
+    "impact": {"type": "object", "properties": {"id": {"type": "string"}}},
+    "incident_entity": {"type": "object", "properties": {"name": {"type": "string"}, "id": {"type": "string"}, "number": {"type": "integer"}}},
+    "paginated_incidents": {"type": "object", "properties": {"data": {"type": "array", "items": {"$ref": "#/definitions/incident_entity"}}, "pagination": {"$ref": "#/definitions/pagination_entity"}}},
+    "pagination_entity": {"type": "object", "properties": {"count": {"type": "integer"}, "page": {"type": "integer"}}},
+    "role_entity": {"type": "object", "properties": {"user": {"type": "object"}, "role": {"type": "string"}, "id": {"type": "string"}}}
+  }
+}

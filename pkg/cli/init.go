@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
+	"strings"
 
-	"gopkg.in/urfave/cli.v1"
+	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v2"
 )
 
@@ -19,52 +21,57 @@ type configFile struct {
 	Service      string `yaml:"service"`
 }
 
-func initCmd(c *cli.Context) error {
+func newInitCmd() *cli.Command {
+	return &cli.Command{
+		Name:   "init",
+		Usage:  "write a config file to be used in future invocations of the FireHydrant CLI",
+		Action: initCmd,
+		Flags:  newSharedFlags(),
+	}
+}
 
-	out := c.GlobalString("config")
+func initCmd(ctx context.Context, cmd *cli.Command) error {
+	out := cmd.String("config")
 	if out == "" {
 		out = "/tmp/firehydrant.cfg"
 	}
 
 	config := configFile{}
-	if len(c.GlobalString("apiKey")) > 0 {
-		config.APIKey = c.GlobalString("apiKey")
+	if v := cmd.String("token"); v != "" {
+		config.APIKey = v
 	}
-
-	if len(c.GlobalString("apiHost")) > 0 {
-		config.APIHost = c.GlobalString("apiHost")
+	// v0.0.15 always wrote a bare host (default api.firehydrant.io), and
+	// older binaries reading this file need it set.
+	config.APIHost = strings.TrimPrefix(strings.TrimPrefix(cmd.String("api-host"), "https://"), "http://")
+	if config.APIHost == "" {
+		config.APIHost = strings.TrimPrefix(defaultAPIHost, "https://")
 	}
+	config.Debug = cmd.Bool("debug")
+	config.IgnoreErrors = cmd.Bool("ignore-errors")
 
-	config.Debug = c.GlobalBool("debug")
-	config.IgnoreErrors = c.GlobalBool("ignoreErrors")
-
-	if len(c.String("identities")) > 0 {
-		config.Identities = c.String("identities")
+	if v := cmd.String("identities"); v != "" {
+		config.Identities = v
 	}
-
-	if len(c.String("labels")) > 0 {
-		config.Labels = c.String("labels")
+	if v := cmd.String("labels"); v != "" {
+		config.Labels = v
 	}
-
-	if len(c.String("environment")) > 0 {
-		config.Environment = c.String("environment")
+	if v := cmd.String("environment"); v != "" {
+		config.Environment = v
 	}
-
-	if len(c.String("service")) > 0 {
-		config.Service = c.String("service")
+	if v := cmd.String("service"); v != "" {
+		config.Service = v
 	}
 
 	d, err := yaml.Marshal(config)
-
 	if err != nil {
-		return err
+		return failCI(err)
 	}
 
-	err = ioutil.WriteFile(out, d, 0644)
+	err = os.WriteFile(out, d, 0644)
 	if err != nil {
-		return err
+		return failCI(err)
 	}
 
-	fmt.Println(fmt.Sprintf("Wrote config file %s", out))
+	fmt.Printf("Wrote config file %s\n", out)
 	return nil
 }

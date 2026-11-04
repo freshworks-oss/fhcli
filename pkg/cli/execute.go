@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -8,41 +9,41 @@ import (
 	"strings"
 	"time"
 
-	"github.com/firehydrant/api-client-go/client/changes"
-	"github.com/firehydrant/api-client-go/fhclient"
-	"github.com/firehydrant/api-client-go/models"
-	"github.com/go-openapi/strfmt"
-	"gopkg.in/urfave/cli.v1"
+	"github.com/firehydrant/firehydrant-go-sdk/models/components"
+	"github.com/urfave/cli/v3"
 )
 
-func executeCmd(c *cli.Context) error {
-	client, err := NewApiClient(c)
-	if err != nil {
-		return err
+func newExecuteCmd() *cli.Command {
+	return &cli.Command{
+		Name:   "execute",
+		Usage:  "execute a command and submit metrics to the FireHydrant API",
+		Action: executeCmd,
+		Flags:  newSharedFlags(),
+		Before: applySharedConfig,
+	}
+}
+
+func executeCmd(ctx context.Context, cmd *cli.Command) error {
+	// As in v0.0.15, missing credentials or a missing command fail before
+	// anything runs. A stored login that can't be used (expired, unreadable)
+	// still lets the command run; only the change event is skipped.
+	client, clientErr := getClient(ctx)
+	if errors.Is(clientErr, errNoCredentials) {
+		return failCI(clientErr)
+	}
+	if cmd.NArg() < 1 {
+		return failCI(errors.New("No command passed"))
 	}
 
-	if len(c.Args()) < 1 {
-		return errors.New("No command passed")
-	}
+	command := cmd.Args().First()
+	flags := cmd.Args().Tail()
+	summary := strings.Join(cmd.Args().Slice(), " ")
 
-	params := changes.NewPostV1ChangesEventsParams()
-	command, flags := c.Args()[0], c.Args()[1:]
-	summary := strings.Join(c.Args(), " ")
+	identities := parseKV(cmd.String("identities"))
 
-	identities := fhclient.ParseKV(c.String("identities"))
+	fmt.Printf("Executing command %s with args %s\n", command, strings.Join(flags, " "))
 
-	params.PostV1ChangesEvents = &models.PostV1ChangesEvents{
-		Environments: fhclient.ParamToList(c.String("environment")),
-		Services:     fhclient.ParamToList(c.String("service")),
-		StartsAt:     strfmt.DateTime(time.Now()),
-		Summary:      &summary,
-		Labels:       fhclient.ParseKV(c.String("labels")),
-	}
-
-	fmt.Println(fmt.Sprintf("Executing command %s with args %s", command, strings.Join(flags, " ")))
 	cmdExec := exec.Command(command, flags...)
-
-	// We don't actually want to capture this; pass it through to the calling shell
 	cmdExec.Stdout = os.Stdout
 	cmdExec.Stderr = os.Stderr
 	start := time.Now()
@@ -50,28 +51,52 @@ func executeCmd(c *cli.Context) error {
 	cErr := cmdExec.Run()
 
 	duration := time.Since(start) / time.Millisecond
-	params.PostV1ChangesEvents.EndsAt = strfmt.DateTime(time.Now())
-	params.PostV1ChangesEvents.StartsAt = strfmt.DateTime(start)
+	now := time.Now()
 
-	// getting the exit code is a pita so i'm not doing it yet
 	if cErr != nil {
 		identities["error"] = cErr.Error()
-		fmt.Println(fmt.Sprintf("Executed command, duration %dms, error: %s", duration, cErr))
+		fmt.Printf("Executed command, duration %dms, error: %s\n", duration, cErr)
 	} else {
-		fmt.Println(fmt.Sprintf("Executed command, duration %dms", duration))
+		fmt.Printf("Executed command, duration %dms\n", duration)
 	}
 
-	params.PostV1ChangesEvents.ChangeIdentities = fhclient.APIKVtoChangeIdentities(fhclient.MapToAPIKV(identities))
-	resp, err := client.Client.Changes.PostV1ChangesEvents(params, client.Auth)
+	if clientErr != nil {
+		if err := handleError(cmd, clientErr); err != nil {
+			return err
+		}
+		if cErr != nil {
+			return handleError(cmd, cErr)
+		}
+		return nil
+	}
 
+	changeIdentities := make([]components.ChangeIdentity, 0, len(identities))
+	for k, v := range identities {
+		changeIdentities = append(changeIdentities, components.ChangeIdentity{
+			Type:  k,
+			Value: v,
+		})
+	}
+
+	req := components.CreateChangeEvent{
+		Summary:          summary,
+		Environments:     paramToList(cmd.String("environment")),
+		Services:         paramToList(cmd.String("service")),
+		StartsAt:         &start,
+		EndsAt:           &now,
+		Labels:           parseKV(cmd.String("labels")),
+		ChangeIdentities: changeIdentities,
+	}
+
+	resp, err := client.Changes.CreateChangeEvent(ctx, req)
 	if err != nil {
-		return handleError(c, err)
+		return handleError(cmd, err)
 	}
 
-	fmt.Println(fmt.Sprintf("Created change event %s", resp.Payload.ID))
+	fmt.Printf("Created change event %s\n", stringValue(resp.ID))
 
 	if cErr != nil {
-		return handleError(c, cErr)
+		return handleError(cmd, cErr)
 	}
 
 	return nil
