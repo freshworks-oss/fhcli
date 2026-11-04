@@ -77,6 +77,10 @@ func newGlobalFlags() []cli.Flag {
 			Aliases: []string{"i"},
 			Usage:   "enable human-readable output instead of JSON",
 		},
+		&cli.StringFlag{
+			Name:  "select",
+			Usage: "keep only these comma-separated fields, e.g. --select id,owner.name (arrays are projected per element)",
+		},
 		&cli.BoolFlag{
 			Name:    "ignore-errors",
 			Aliases: []string{"ignoreErrors"},
@@ -111,6 +115,7 @@ func newRootCmd(commit, version string, sp *spec.Spec, specErr error) *cli.Comma
 			newIncidentsCmd(),
 			newServicesCmd(),
 			newTeamsCmd(),
+			newUsersCmd(),
 			newAPICmd(sp, specErr, runOperation),
 			newSearchCmd(sp, specErr),
 			newSpecCmd(),
@@ -301,6 +306,13 @@ func isTerminal(w io.Writer) bool {
 
 // outputResult writes data as JSON to stdout, or human-readable if --interactive is set.
 func outputResult(cmd *cli.Command, data any) error {
+	if sel := cmd.String("select"); sel != "" {
+		projected, err := applySelect(data, sel)
+		if err != nil {
+			return failCmd(cmd, err)
+		}
+		data = projected
+	}
 	if cmd.Bool("interactive") {
 		return outputInteractive(os.Stdout, data)
 	}
