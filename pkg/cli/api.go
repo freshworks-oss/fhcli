@@ -386,7 +386,7 @@ func runOperation(ctx context.Context, cmd *cli.Command, op spec.Operation, bind
 
 	resp, err := client.do(ctx, req.Method, req.Path, req.Query, body)
 	if err != nil {
-		return failCmd(cmd, withTimeoutHint(op, err))
+		return failCmd(cmd, withWriteHint(op, withTimeoutHint(op, err)))
 	}
 	return outputResult(cmd, resp)
 }
@@ -418,6 +418,17 @@ func withTimeoutHint(op spec.Operation, err error) error {
 		return fmt.Errorf("%w (the request timed out; try narrower filters or a smaller --per-page, then retry)", err)
 	}
 	return fmt.Errorf("%w (the request timed out; retry, and check status.firehydrant.com if it persists)", err)
+}
+
+// withWriteHint warns that a failed create (POST) may or may not have
+// created anything, so a blind retry can leave a duplicate. A 5xx says the
+// server failed, not that the request was rejected; listing is cheap.
+func withWriteHint(op spec.Operation, err error) error {
+	var ae *apiError
+	if op.Method != http.MethodPost || !errors.As(err, &ae) || ae.status < 500 {
+		return err
+	}
+	return fmt.Errorf("%w (server error on a create: it is not confirmed that nothing was created; list the resource before retrying to avoid a duplicate)", err)
 }
 
 // buildRequest substitutes path args, collects set query flags, and merges

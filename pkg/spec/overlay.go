@@ -71,6 +71,18 @@ var overlay = []overlayEntry{
 		Notes:     []string{"To comment on this alert, pass .conversations[0].id to create_comment."},
 	},
 	{
+		// The spec marks only name required, but the endpoint needs a time
+		// zone unless rotations are given; a request without one passes
+		// --dry-run and fails with a 500.
+		Operation: "create_team_on_call_schedule",
+		SeeAlso:   []string{"create_team_escalation_policy", "list_team_on_call_schedules"},
+		Notes: []string{
+			"Required unless rotations is given: --time-zone (an IANA name, e.g. America/Los_Angeles). Omitting it returns a 500, not a 422.",
+			"A weekly strategy ignores --start-time: the first shift is the most recent handoff, and the first member listed is first on call.",
+			"The schedule id from this call is what create_team_escalation_policy targets (type OnCallSchedule).",
+		},
+	},
+	{
 		Operation: "create_incident_note",
 		Notes: []string{
 			"Notes default to private_to_org. open_to_public is visible outside your organization; " +

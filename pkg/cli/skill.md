@@ -206,6 +206,17 @@ Follow-ups (action items) are tickets with type `follow_up`:
    ```
 3. Show the user the request, send it after they agree, and read it back with `fhcli api ticketing get-ticket <id>`. Linked Jira issues are created by the integration within seconds; check `sync_error_message` on the ticket if one doesn't appear.
 
+### Recipe: set up on-call for a team
+
+Three writes, each feeding the next. Dry-run every one and send after the user agrees:
+
+1. Find people: `fhcli users find robert@example.com` — prints `id`, `name`, `email`; an exact email match returns one user. Create the team with `fhcli api teams create-team --name "…" --data '{"memberships":[{"user_id":"<id>"}]}' --dry-run`, and note the team `id`.
+2. Schedule: `fhcli api signals create-team-on-call-schedule <team_id> --name "…" --time-zone America/Los_Angeles --rotation-name "…" --data '{"strategy":{"type":"weekly","handoff_day":"monday","handoff_time":"09:00"},"members":[{"id":"<user id>"}]}' --dry-run`. `--time-zone` is required unless `rotations` is given; leaving it out passes `--dry-run` but fails with a 500. A weekly rotation starts on the most recent handoff, and the first member listed is first on call. Note the schedule `id`.
+3. Escalation policy: `fhcli api signals create-team-escalation-policy <team_id> --name "…" --data '{"steps":[{"timeout":"PT15M","targets":[{"id":"<schedule id>","type":"OnCallSchedule"}]}]}' --dry-run`.
+4. Read back with `fhcli api signals get-team-on-call-schedule <team_id> <schedule_id>` and check the shifts.
+
+If a create returns a 5xx, nothing is confirmed either way: list the team's schedules (or policies) before retrying so you don't make a duplicate.
+
 ## Command reference
 
 | Command | Description |
@@ -350,6 +361,8 @@ fhcli incidents list --status active | jq '.data[] | {id, name, severity}'
 ```
 
 `incidents`, `services`, and `teams` commands exit non-zero on failure and write `{"error": "..."}` (plus `status`, `method`, `path`, `response` for API failures) to stderr — check the exit code before trusting stdout. (`event` and `execute` exit 0 on API errors by default so they never break CI; pass `--ignore-errors=false` to change that.)
+
+To read only some fields, add `--select` (works on every command that prints JSON): `fhcli incidents list --select data.id,data.name`. Paths are dotted; arrays are projected per element, and a path that matches nothing is `null`.
 
 ## Authentication
 
